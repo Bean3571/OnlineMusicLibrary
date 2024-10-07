@@ -1,0 +1,274 @@
+basePath: /
+definitions:
+  main.Song:
+    properties:
+      group:
+        description: ID          int    `db:"id" json:"id"`
+        type: string
+      link:
+        type: string
+      release_date:
+        type: string
+      song:
+        type: string
+      text:
+        type: string
+    type: object
+  main.SongDetail:
+    properties:
+      link:
+        type: string
+      release_date:
+        type: string
+      text:
+        type: string
+    type: object
+  main.SongShort:
+    properties:
+      group:
+        type: string
+      song:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Online Music Library API project.
+  title: OnlineMusicLibrary API
+  version: "1.0"
+paths:
+  /info:
+    get:
+      consumes:
+      - application/json
+      description: Get releaseDate, text, link for a song based on group and song.
+      parameters:
+      - description: Group of the song
+        in: query
+        name: group
+        required: true
+        type: string
+      - description: Title of the song
+        in: query
+        name: song
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Song details
+          schema:
+            $ref: '#/definitions/main.SongDetail'
+        "400":
+          description: Missing required parameters 'group' or 'song'
+          schema:
+            type: string
+        "404":
+          description: Song not found
+          schema:
+            type: string
+        "500":
+          description: Failed to fetch song details
+          schema:
+            type: string
+      summary: Music info
+      tags:
+      - songs
+  /songs:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a song by specifying the group and song fields.
+      parameters:
+      - description: Song data to delete
+        in: body
+        name: song
+        required: true
+        schema:
+          $ref: '#/definitions/main.SongShort'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Song deleted successfully
+          schema:
+            type: string
+        "400":
+          description: Invalid JSON format
+          schema:
+            type: string
+        "404":
+          description: Song not found
+          schema:
+            type: string
+        "500":
+          description: Failed to delete song
+          schema:
+            type: string
+      summary: Delete a song
+      tags:
+      - songs
+    get:
+      consumes:
+      - application/json
+      description: Get songs with optional filters and pagination.
+      parameters:
+      - description: Group of the song
+        in: query
+        name: group
+        type: string
+      - description: Title of the song
+        in: query
+        name: song
+        type: string
+      - description: Release date of the song
+        in: query
+        name: releaseDate
+        type: string
+      - description: Link to the song
+        in: query
+        name: link
+        type: string
+      - description: Page number (default is 1)
+        in: query
+        name: page
+        type: integer
+      - description: Number of songs per page (default is 3)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of songs
+          schema:
+            items:
+              $ref: '#/definitions/main.Song'
+            type: array
+        "400":
+          description: Invalid page or limit parameter
+          schema:
+            type: string
+        "404":
+          description: No songs found
+          schema:
+            type: string
+        "500":
+          description: Failed to fetch songs
+          schema:
+            type: string
+      summary: Get songs with filters and pagination
+      tags:
+      - songs
+    post:
+      consumes:
+      - application/json
+      description: Add a song with only group and song fields, or all fields.
+      parameters:
+      - description: Song data
+        in: body
+        name: song
+        required: true
+        schema:
+          $ref: '#/definitions/main.SongShort'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Song'
+        "400":
+          description: Invalid JSON format
+          schema:
+            type: string
+        "500":
+          description: Failed to add song
+          schema:
+            type: string
+      summary: Add a new song
+      tags:
+      - songs
+    put:
+      consumes:
+      - application/json
+      description: Update a song by providing all fields (group, song, releaseDate,
+        text, link).
+      parameters:
+      - description: Song data to update
+        in: body
+        name: song
+        required: true
+        schema:
+          $ref: '#/definitions/main.Song'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Song updated successfully
+          schema:
+            type: string
+        "400":
+          description: All fields (group, song, releaseDate, text, link) are required
+          schema:
+            type: string
+        "404":
+          description: Song not found
+          schema:
+            type: string
+        "500":
+          description: Failed to update song
+          schema:
+            type: string
+      summary: Update a song
+      tags:
+      - songs
+  /songs/text:
+    get:
+      consumes:
+      - application/json
+      description: Fetch the song text with pagination by verses.
+      parameters:
+      - description: Group of the song
+        in: query
+        name: group
+        required: true
+        type: string
+      - description: Title of the song
+        in: query
+        name: song
+        required: true
+        type: string
+      - description: Page number (default is 1)
+        in: query
+        name: page
+        type: integer
+      - description: Number of verses per page (default is 1)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Song text or a portion of it
+          schema:
+            type: string
+        "400":
+          description: Invalid page or limit parameter or missing required parameters
+          schema:
+            type: string
+        "404":
+          description: Song not found or no text available
+          schema:
+            type: string
+        "500":
+          description: Failed to fetch song text
+          schema:
+            type: string
+      summary: Get song text with pagination
+      tags:
+      - songs
+swagger: "2.0"
