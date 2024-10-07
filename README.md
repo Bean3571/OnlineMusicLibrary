@@ -23,3 +23,10 @@ GET /songs/text - получить текст песни с пагинацией
 GET /info - получить releaseDate, text, link, указанной песни, обязательные парметры: group, song
 
 GET /songs - получить список спесен с фильтрацией и пагинацией
+
+Swagger:
+![{F9ED3FCD-4063-4676-9469-B977C9420C8B}](https://github.com/user-attachments/assets/78163bd4-5802-41ea-bb50-7ff13e04ba75)
+
+Отрывок из лога:
+![{DAE22A2C-EDB2-46AE-8603-E9BB898FD4CC}](https://github.com/user-attachments/assets/718c50fb-df9f-4740-acfa-0c7859b1ec8c)
+
