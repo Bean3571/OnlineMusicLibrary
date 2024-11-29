@@ -12,17 +12,17 @@ Swagger UI открывается по адресу: http://localhost:8080/swagg
 
 Запросы:
 
-POST /songs - добавить песню, обязательные параметры: group, song, необязательные: text, link, releaseDate
+POST /songs - добавить песню
 
-PUT /songs - редактировать песню, обязательные параметры: group, song, необязательные: text, link, releaseDate
+PUT /songs - редактировать песню
 
-DELETE /songs - удалить песню, обязательные параметры: group, song
+DELETE /songs - удалить песню
 
-GET /songs/text - получить текст песни с пагинацией, обязательные параметры: group, song
+GET /songs/text - получить текст песни с пагинацией
 
 GET /info - получить releaseDate, text, link, указанной песни, обязательные парметры: group, song
 
-GET /songs - получить список спесен с фильтрацией и пагинацией
+GET /songs - получить список песен с фильтрацией и пагинацией
 
 Swagger:
 ![{F9ED3FCD-4063-4676-9469-B977C9420C8B}](https://github.com/user-attachments/assets/78163bd4-5802-41ea-bb50-7ff13e04ba75)
