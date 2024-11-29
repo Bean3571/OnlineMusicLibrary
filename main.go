@@ -45,8 +45,9 @@ func main() {
 	r := setupRoutes()
 	slog.Info("Routes set up successfully!")
 
-	slog.Info("Starting server on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	serverAdress := os.Getenv("SERVER_ADDRESS")
+	slog.Info("Starting server", "address", serverAdress)
+	if err := http.ListenAndServe(serverAdress, r); err != nil {
 		slog.Error("Error starting server")
 		os.Exit(1)
 	}

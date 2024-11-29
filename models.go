@@ -1,21 +1,27 @@
 package main
 
+type Group struct {
+	ID        int    `db:"id_group" json:"id_group"`
+	GroupName string `db:"groupName" json:"group"`
+}
+
 type Song struct {
-	//ID          int    `db:"id" json:"id"`
-	Group       string `db:"group" json:"group"`
-	Song        string `db:"song" json:"song"`
+	ID          int    `db:"id_song" json:"id_song"`
+	GroupID     int    `db:"id_group" json:"id_group"`
+	GroupName   string `db:"group" json:"group"`
+	SongName    string `db:"song" json:"song"`
 	ReleaseDate string `db:"release_date" json:"release_date,omitempty"`
-	Text        string `db:"text" json:"text,omitempty"`
+	Lyrics      string `db:"lyrics" json:"text,omitempty"`
 	Link        string `db:"link" json:"link,omitempty"`
 }
 
 type SongShort struct {
-	Group string `db:"group" json:"group"`
-	Song  string `db:"song" json:"song"`
+	GroupName string `db:"groupName" json:"group"`
+	SongName  string `db:"songName" json:"song"`
 }
 
 type SongDetail struct {
 	ReleaseDate string `db:"release_date" json:"release_date,omitempty"`
-	Text        string `db:"text" json:"text,omitempty"`
+	Lyrics      string `db:"lyrics" json:"text,omitempty"`
 	Link        string `db:"link" json:"link,omitempty"`
 }

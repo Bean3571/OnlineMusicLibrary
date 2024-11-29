@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -18,16 +20,13 @@ func setupRoutes() *mux.Router {
 	r := mux.NewRouter()
 	slog.Info("Router initialized successfully!")
 
-	slog.Info("Setting up /songs routes")
 	r.HandleFunc("/songs", addSong).Methods("POST")
 	r.HandleFunc("/info", getSongInfo).Methods("GET")
 	r.HandleFunc("/songs", updateSong).Methods("PUT")
 	r.HandleFunc("/songs", deleteSong).Methods("DELETE")
 	r.HandleFunc("/songs/text", getSongText).Methods("GET")
-	r.HandleFunc("/songs", getSongs).Methods("GET")
-	slog.Info("/songs Routes set up successfully!")
+	r.HandleFunc("/songs", getSongsFiltered).Methods("GET")
 
-	slog.Info("Setting up Swagger route")
 	r.PathPrefix("/OnlineMusicLibrary/docs/").Handler(http.StripPrefix("/OnlineMusicLibrary/docs/", http.FileServer(http.Dir("docs/"))))
 	r.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
 		httpSwagger.URL("http://localhost:8080/OnlineMusicLibrary/docs/swagger.json"),
@@ -35,72 +34,110 @@ func setupRoutes() *mux.Router {
 		httpSwagger.DocExpansion("none"),
 		httpSwagger.DomID("swagger-ui"),
 	)).Methods("GET")
-	slog.Info("Swagger route set up successfully!")
 
 	return r
 }
 
 // @Summary Add a new song
-// @Description Add a song with only group and song fields, or all fields.
+// @Description Add a new song by providing group name and song name. Details (release date, text, link) are fetched from an external API.
 // @Tags songs
 // @Accept  json
 // @Produce  json
-// @Param song body SongShort true "Song data"
-// @Success 201 {object} Song
-// @Failure 400 {string} string "Invalid JSON format"
+// @Param input body SongShort true "Group and Song names"
+// @Success 201 {string} string "Song added successfully"
+// @Failure 400 {string} string "Invalid input"
+// @Failure 404 {string} string "Song details not found"
 // @Failure 500 {string} string "Failed to add song"
 // @Router /songs [post]
 func addSong(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Recieved request addSong")
-	var song Song
+	slog.Info("Received request to addSong")
 
-	if err := json.NewDecoder(r.Body).Decode(&song); err != nil {
+	apiURL := os.Getenv("EXTERNAL_API_URL")
+	if apiURL == "" {
+		slog.Error("External API URL not configured")
+		//http.Error(w, "External API URL not configured", http.StatusInternalServerError)
+		//return
+	}
+	slog.Debug("External API URL:", "url", apiURL)
+
+	var input SongShort
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		slog.Error("Invalid JSON format", "error", err)
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
-	slog.Debug("Adding new song", "group", song.Group, "song", song.Song)
 
-	var exists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM songs WHERE "group" = $1 AND "song" = $2)`
-	err := db.Get(&exists, checkQuery, song.Group, song.Song)
-	if err != nil {
-		slog.Error("Failed to check if song exists", "error", err)
-		http.Error(w, "Failed to check if song exists", http.StatusInternalServerError)
+	if input.GroupName == "" || input.SongName == "" {
+		slog.Warn("Missing required fields", "input", input)
+		http.Error(w, "Group name and Song name are required", http.StatusBadRequest)
 		return
 	}
 
-	if exists {
-		slog.Warn("Song already exists", "group", song.Group, "song", song.Song)
-		http.Error(w, "Song already exists", http.StatusConflict)
-		return
-	}
+	var songDetail SongDetail
+	songDetail.ReleaseDate = "2024-11-25"
+	songDetail.Lyrics = "Text Placeholder Verse1 \n\nText Placeholder Verse2\n\nText Placeholder Verse3"
+	songDetail.Link = "Link Placeholder"
 
-	if song.Text == "" {
-		song.Text = "Text placeholder"
-	}
-	if song.ReleaseDate == "" {
-		song.ReleaseDate = "ReleaseDate placeholder"
-	}
-	if song.Link == "" {
-		song.Link = "Link placeholder"
-	}
+	fullURL := fmt.Sprintf("%s?group=%s&song=%s",
+		apiURL,
+		url.QueryEscape(input.GroupName),
+		url.QueryEscape(input.SongName),
+	)
 
-	query := `INSERT INTO songs ("group", "song", "text", "release_date", "link")
-                 VALUES ($1, $2, $3, $4, $5)`
-	slog.Debug("Executing query:" + query)
-	_, err = db.Exec(query, song.Group, song.Song, song.Text, song.ReleaseDate, song.Link)
-
+	resp, err := http.Get(fullURL)
 	if err != nil {
-		slog.Error("Failed to add song", "error", err)
+		slog.Warn("Failed to call external API, using placeholders", "error", err)
+	} else if resp.StatusCode != http.StatusOK {
+		slog.Warn("External API returned non-200 status", "status", resp.StatusCode)
+		if resp.StatusCode == http.StatusNotFound {
+			http.Error(w, "Song details not found", http.StatusNotFound)
+			return
+		} else {
+			http.Error(w, "Failed to fetch song details", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		defer resp.Body.Close()
+
+		if err := json.NewDecoder(resp.Body).Decode(&songDetail); err != nil {
+			slog.Warn("Failed to decode API response, using placeholders", "error", err)
+		}
+	}
+
+	var groupID int
+	err = db.QueryRow("SELECT id_group FROM musicGroups WHERE groupName = $1", input.GroupName).Scan(&groupID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err = db.QueryRow(
+				"INSERT INTO musicGroups (groupName) VALUES ($1) RETURNING id_group",
+				input.GroupName,
+			).Scan(&groupID)
+			if err != nil {
+				slog.Error("Failed to insert group", "error", err)
+				http.Error(w, "Failed to add song", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			slog.Error("Database error while fetching group ID", "error", err)
+			http.Error(w, "Failed to add song", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	query := `
+        INSERT INTO songs (id_group, song, release_date, lyrics, link)
+        VALUES ($1, $2, $3, $4, $5)`
+	_, err = db.Exec(query, groupID, input.SongName, songDetail.ReleaseDate, songDetail.Lyrics, songDetail.Link)
+	if err != nil {
+		slog.Error("Failed to insert song", "error", err)
 		http.Error(w, "Failed to add song", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(song)
+	w.Write([]byte("Song added successfully"))
 
-	slog.Debug("Song added successfully", "group", song.Group, "song", song.Song)
+	slog.Info("Song added successfully", "group", input.GroupName, "song", input.SongName)
 }
 
 // @Summary Music info
@@ -116,24 +153,28 @@ func addSong(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {string} string "Failed to fetch song details"
 // @Router /info [get]
 func getSongInfo(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Received request getSongInfo")
-	group := r.URL.Query().Get("group")
-	song := r.URL.Query().Get("song")
+	slog.Info("Received request to get song info")
+	groupName := r.URL.Query().Get("group")
+	songName := r.URL.Query().Get("song")
 
-	if group == "" || song == "" {
-		slog.Warn("Missing required parameters 'group' or 'song'")
-		http.Error(w, "Missing required parameters 'group' or 'song'", http.StatusBadRequest)
+	if groupName == "" || songName == "" {
+		slog.Warn("Missing required parameters 'groupName' or 'song'")
+		http.Error(w, "Missing required parameters 'groupName' or 'song'", http.StatusBadRequest)
 		return
 	}
 
-	slog.Debug("Fetching song info", "group", group, "song", song)
+	slog.Debug("Fetching song info", "group", groupName, "song", songName)
 
 	var detail SongDetail
-	query := `SELECT release_date, text, link FROM songs WHERE "group" = $1 AND "song" = $2`
-	err := db.Get(&detail, query, group, song)
+	query := `
+		SELECT s.release_date, s.lyrics, s.link 
+		FROM songs s
+		JOIN musicGroups g ON s.id_group = g.id_group
+		WHERE g.groupName = $1 AND s.song = $2`
+	err := db.Get(&detail, query, groupName, songName)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			slog.Warn("Song not found", "group", group, "song", song)
+			slog.Warn("Song not found", "group", groupName, "song", songName)
 			http.Error(w, "Song not found", http.StatusNotFound)
 			return
 		}
@@ -145,119 +186,126 @@ func getSongInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(detail)
 
-	slog.Debug("Song details fetched successfully", "group", group, "song", song)
+	slog.Debug("Song details fetched successfully", "group", groupName, "song", songName)
 }
 
-// @Summary Update a song
-// @Description Update a song by providing all fields (group, song, releaseDate, text, link).
+// @Summary Update song details
+// @Description Update the details of an existing song.
 // @Tags songs
 // @Accept  json
 // @Produce  json
-// @Param song body Song true "Song data to update"
-// @Success 200 {string} string "Song updated successfully"
-// @Failure 400 {string} string "All fields (group, song, releaseDate, text, link) are required"
+// @Param id_song query int true "ID of the song"
+// @Param song body Song true "Updated song details"
+// @Success 200 {object} Song "The updated song"
+// @Failure 400 {string} string "Invalid input"
 // @Failure 404 {string} string "Song not found"
 // @Failure 500 {string} string "Failed to update song"
 // @Router /songs [put]
 func updateSong(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Received request updateSong")
+	slog.Info("Received request to update song")
+
+	idStr := r.URL.Query().Get("id_song")
+	if idStr == "" {
+		slog.Warn("Missing required parameter 'id_song'")
+		http.Error(w, "Missing required parameter 'id_song'", http.StatusBadRequest)
+		return
+	}
+
+	idSong, err := strconv.Atoi(idStr)
+	if err != nil || idSong < 1 {
+		slog.Warn("Invalid 'id_song' parameter", "id_song", idStr)
+		http.Error(w, "Invalid 'id_song' parameter", http.StatusBadRequest)
+		return
+	}
+
 	var song Song
-
 	if err := json.NewDecoder(r.Body).Decode(&song); err != nil {
-		slog.Error("Invalid JSON format", "error", err)
-		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		slog.Warn("Invalid request body", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if song.Group == "" || song.Song == "" || song.ReleaseDate == "" || song.Text == "" || song.Link == "" {
-		slog.Warn("Missing required fields", "group", song.Group, "song", song.Song)
-		http.Error(w, "All fields (group, song, releaseDate, text, link) are required", http.StatusBadRequest)
-		return
-	}
+	query := `
+        UPDATE songs
+        SET 
+            id_group = COALESCE($1, id_group),
+            song = COALESCE($2, song),
+            release_date = COALESCE($3, release_date),
+            lyrics = COALESCE($4, lyrics),
+            link = COALESCE($5, link)
+        WHERE id_song = $6`
 
-	slog.Debug("Updating song", "group", song.Group, "song", song.Song)
+	result, err := db.Exec(query,
+		song.GroupID,
+		song.SongName,
+		song.ReleaseDate,
+		song.Lyrics,
+		song.Link,
+		idSong)
 
-	var exists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM songs WHERE "group" = $1 AND "song" = $2)`
-	err := db.Get(&exists, checkQuery, song.Group, song.Song)
 	if err != nil {
-		slog.Error("Failed to check if song exists", "error", err)
-		http.Error(w, "Failed to check if song exists", http.StatusInternalServerError)
+		slog.Error("Failed to update song details", "error", err)
+		http.Error(w, "Failed to update song details", http.StatusInternalServerError)
 		return
 	}
 
-	if !exists {
-		slog.Warn("Song not found", "group", song.Group, "song", song.Song)
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		slog.Warn("Song not found", "id_song", idSong)
 		http.Error(w, "Song not found", http.StatusNotFound)
-		return
-	}
-
-	updateQuery := `UPDATE songs
-                    SET "text" = $1, "release_date" = $2, "link" = $3
-                    WHERE "group" = $4 AND "song" = $5`
-	_, err = db.Exec(updateQuery, song.Text, song.ReleaseDate, song.Link, song.Group, song.Song)
-	if err != nil {
-		slog.Error("Failed to update song", "error", err)
-		http.Error(w, "Failed to update song", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Song updated successfully"))
 
-	slog.Debug("Song updated successfully", "group", song.Group, "song", song.Song)
+	slog.Debug("Song details updated successfully", "id_song", idSong)
 }
 
 // @Summary Delete a song
-// @Description Delete a song by specifying the group and song fields.
+// @Description Delete a song from the database by its ID.
 // @Tags songs
 // @Accept  json
 // @Produce  json
-// @Param song body SongShort true "Song data to delete"
-// @Success 200 {string} string "Song deleted successfully"
-// @Failure 400 {string} string "Invalid JSON format"
+// @Param id_song query int true "ID of the song"
+// @Success 204 "No Content"
+// @Failure 400 {string} string "Invalid parameters"
 // @Failure 404 {string} string "Song not found"
 // @Failure 500 {string} string "Failed to delete song"
 // @Router /songs [delete]
 func deleteSong(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Recieved request deleteSong")
-	var song Song
+	slog.Info("Received request deleteSong")
 
-	if err := json.NewDecoder(r.Body).Decode(&song); err != nil {
-		slog.Error("Invalid JSON format", "error", err)
-		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+	idStr := r.URL.Query().Get("id_song")
+	if idStr == "" {
+		slog.Warn("Missing required parameter 'id_song'")
+		http.Error(w, "Missing required parameter 'id_song'", http.StatusBadRequest)
 		return
 	}
 
-	slog.Debug("Deleting song", "group", song.Group, "song", song.Song)
-
-	var exists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM songs WHERE "group" = $1 AND "song" = $2)`
-	err := db.Get(&exists, checkQuery, song.Group, song.Song)
-	if err != nil {
-		slog.Error("Failed to check if song exists", "error", err)
-		http.Error(w, "Failed to check if song exists", http.StatusInternalServerError)
+	idSong, err := strconv.Atoi(idStr)
+	if err != nil || idSong < 1 {
+		slog.Warn("Invalid 'id_song' parameter", "id_song", idStr)
+		http.Error(w, "Invalid 'id_song' parameter", http.StatusBadRequest)
 		return
 	}
 
-	if !exists {
-		slog.Warn("Song not found", "group", song.Group, "song", song.Song)
-		http.Error(w, "Song not found", http.StatusNotFound)
-		return
-	}
-
-	deleteQuery := `DELETE FROM songs WHERE "group" = $1 AND "song" = $2`
-	_, err = db.Exec(deleteQuery, song.Group, song.Song)
+	query := `DELETE FROM songs WHERE id_song = $1`
+	result, err := db.Exec(query, idSong)
 	if err != nil {
 		slog.Error("Failed to delete song", "error", err)
 		http.Error(w, "Failed to delete song", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Song deleted successfully"))
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		slog.Warn("Song not found", "id_song", idSong)
+		http.Error(w, "Song not found", http.StatusNotFound)
+		return
+	}
 
-	slog.Debug("Song deleted successfully", "group", song.Group, "song", song.Song)
+	w.WriteHeader(http.StatusNoContent)
+	slog.Debug("Song deleted successfully", "id_song", idSong)
 }
 
 // @Summary Get song text with pagination
@@ -265,53 +313,58 @@ func deleteSong(w http.ResponseWriter, r *http.Request) {
 // @Tags songs
 // @Accept  json
 // @Produce  text/plain
-// @Param group query string true "Group of the song"
-// @Param song query string true "Title of the song"
+// @Param id_song query int true "ID of the song"
 // @Param page query int false "Page number (default is 1)"
 // @Param limit query int false "Number of verses per page (default is 1)"
 // @Success 200 {string} string "Song text or a portion of it"
-// @Failure 400 {string} string "Invalid page or limit parameter or missing required parameters"
+// @Failure 400 {string} string "Invalid parameters"
 // @Failure 404 {string} string "Song not found or no text available"
 // @Failure 500 {string} string "Failed to fetch song text"
 // @Router /songs/text [get]
 func getSongText(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Received request getSongText")
 
-	group := r.URL.Query().Get("group")
-	song := r.URL.Query().Get("song")
-
-	if group == "" || song == "" {
-		slog.Warn("Missing required parameters 'group' or 'song'")
-		http.Error(w, "Missing required parameters 'group' or 'song'", http.StatusBadRequest)
+	idStr := r.URL.Query().Get("id_song")
+	if idStr == "" {
+		slog.Warn("Missing required parameter 'id_song'")
+		http.Error(w, "Missing required parameter 'id_song'", http.StatusBadRequest)
 		return
 	}
 
-	slog.Debug("Fetching song text", "group", group, "song", song)
+	idSong, err := strconv.Atoi(idStr)
+	if err != nil || idSong < 1 {
+		slog.Warn("Invalid 'id_song' parameter", "id_song", idStr)
+		http.Error(w, "Invalid 'id_song' parameter", http.StatusBadRequest)
+		return
+	}
 
-	var songText string
-	query := `SELECT "text" FROM songs WHERE "group" = $1 AND "song" = $2`
-	err := db.Get(&songText, query, group, song)
+	slog.Debug("Fetching song text", "id_song", idSong)
+
+	var text string
+	query := `SELECT lyrics FROM songs WHERE id_song = $1`
+	err = db.Get(&text, query, idSong)
 	if err != nil {
-		slog.Error("Failed to fetch song text", "error", err)
-		http.Error(w, "Failed to fetch song text", http.StatusInternalServerError)
+		if err == sql.ErrNoRows {
+			slog.Warn("Song not found", "id_song", idSong)
+			http.Error(w, "Song not found", http.StatusNotFound)
+		} else {
+			slog.Error("Failed to fetch song text", "error", err)
+			http.Error(w, "Failed to fetch song text", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	if songText == "" {
-		slog.Warn("Text not found for song", "group", group, "song", song)
+	if text == "" {
+		slog.Warn("No text available for song", "id_song", idSong)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Looks like we don't have text for this one"))
+		w.Write([]byte("No text available for this song"))
 		return
 	}
 
-	verses := strings.Split(songText, "\n\n")
+	verses := strings.Split(text, "\n\n")
+	page, limit := 1, 1
 
 	pageStr := r.URL.Query().Get("page")
-	limitStr := r.URL.Query().Get("limit")
-
-	page := 1
-	limit := 1
-
 	if pageStr != "" {
 		page, err = strconv.Atoi(pageStr)
 		if err != nil || page < 1 {
@@ -321,6 +374,7 @@ func getSongText(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	limitStr := r.URL.Query().Get("limit")
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit < 1 {
@@ -349,107 +403,71 @@ func getSongText(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(responseText))
 
-	slog.Debug("Song text fetched successfully", "group", group, "song", song, "page", page, "limit", limit)
+	slog.Debug("Song text fetched successfully", "id_song", idSong, "page", page, "limit", limit)
 }
 
-// @Summary Get songs with filters and pagination
-// @Description Get songs with optional filters and pagination.
+// @Summary Get songs with optional filters and pagination
+// @Description Retrieve a list of songs with optional filters: group name, song name, release date, text, link.
 // @Tags songs
 // @Accept  json
 // @Produce  json
-// @Param group       query string false "Group of the song"
-// @Param song        query string false "Title of the song"
-// @Param releaseDate query string false "Release date of the song"
-// @Param link        query string false "Link to the song"
-// @Param page        query int    false "Page number (default is 1)"
-// @Param limit       query int    false "Number of songs per page (default is 3)"
-// @Success 200 {array}  Song   "List of songs"
-// @Failure 400 {string} string "Invalid page or limit parameter"
-// @Failure 404 {string} string "No songs found"
+// @Param group query string false "Filter by group name"
+// @Param song query string false "Filter by song name"
+// @Param release_date query string false "Filter by release date (YYYY-MM-DD)"
+// @Param text query string false "Filter by text"
+// @Param link query string false "Filter by link"
+// @Success 200 {array} Song "Filtered list of songs"
 // @Failure 500 {string} string "Failed to fetch songs"
 // @Router /songs [get]
-func getSongs(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Received request getSongs")
+func getSongsFiltered(w http.ResponseWriter, r *http.Request) {
+	slog.Info("Received request to getSongsWithFilters")
 
 	group := r.URL.Query().Get("group")
 	song := r.URL.Query().Get("song")
-	releaseDate := r.URL.Query().Get("releaseDate")
+	releaseDate := r.URL.Query().Get("release_date")
+	text := r.URL.Query().Get("text")
 	link := r.URL.Query().Get("link")
 
-	pageStr := r.URL.Query().Get("page")
-	limitStr := r.URL.Query().Get("limit")
-
-	page := 1
-	limit := 3
-
-	var err error
-	if pageStr != "" {
-		page, err = strconv.Atoi(pageStr)
-		if err != nil || page < 1 {
-			slog.Warn("Invalid page parameter", "page", pageStr)
-			http.Error(w, "Invalid page parameter", http.StatusBadRequest)
-			return
-		}
-	}
-
-	if limitStr != "" {
-		limit, err = strconv.Atoi(limitStr)
-		if err != nil || limit < 1 {
-			slog.Warn("Invalid limit parameter", "limit", limitStr)
-			http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
-			return
-		}
-	}
-
-	query := `SELECT "group", "song", "release_date", "text", "link" FROM songs WHERE 1=1`
-
-	var args []interface{}
-	argIndex := 1
+	query := `
+        SELECT s.id_song, s.id_group, g.groupName AS group, s.song, s.release_date, s.lyrics, s.link
+        FROM songs s
+        INNER JOIN musicGroups g ON s.id_group = g.id_group
+        WHERE 1=1`
+	args := []interface{}{}
 
 	if group != "" {
-		query += fmt.Sprintf(` AND "group" = $%d`, argIndex)
-		args = append(args, group)
-		argIndex++
+		query += " AND g.groupName ILIKE $1"
+		args = append(args, "%"+group+"%")
 	}
-
 	if song != "" {
-		query += fmt.Sprintf(` AND "song" = $%d`, argIndex)
-		args = append(args, song)
-		argIndex++
+		query += " AND s.song ILIKE $" + strconv.Itoa(len(args)+1)
+		args = append(args, "%"+song+"%")
 	}
-
 	if releaseDate != "" {
-		query += fmt.Sprintf(` AND "release_date" = $%d`, argIndex)
+		query += " AND s.release_date = $" + strconv.Itoa(len(args)+1)
 		args = append(args, releaseDate)
-		argIndex++
 	}
-
+	if text != "" {
+		query += " AND s.lyrics ILIKE $" + strconv.Itoa(len(args)+1)
+		args = append(args, "%"+text+"%")
+	}
 	if link != "" {
-		query += fmt.Sprintf(` AND "link" = $%d`, argIndex)
-		args = append(args, link)
-		argIndex++
+		query += " AND s.link ILIKE $" + strconv.Itoa(len(args)+1)
+		args = append(args, "%"+link+"%")
 	}
 
-	offset := (page - 1) * limit
-	query += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, argIndex, argIndex+1)
-	args = append(args, limit, offset)
+	slog.Debug("Executing query", "query", query, "args", args)
 
 	var songs []Song
-	err = db.Select(&songs, query, args...)
+	err := db.Select(&songs, query, args...)
 	if err != nil {
 		slog.Error("Failed to fetch songs", "error", err)
 		http.Error(w, "Failed to fetch songs", http.StatusInternalServerError)
 		return
 	}
 
-	if len(songs) == 0 {
-		slog.Warn("No songs found with the given filters")
-		http.Error(w, "No songs found", http.StatusNotFound)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(songs)
 
-	slog.Debug("Songs fetched successfully", "total_songs", len(songs), "page", page, "limit", limit)
+	slog.Debug("Songs retrieved successfully", "count", len(songs))
 }

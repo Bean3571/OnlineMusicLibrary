@@ -74,7 +74,7 @@ const docTemplate = `{
         },
         "/songs": {
             "get": {
-                "description": "Get songs with optional filters and pagination.",
+                "description": "Retrieve a list of songs with optional filters: group name, song name, release date, text, link.",
                 "consumes": [
                     "application/json"
                 ],
@@ -84,65 +84,47 @@ const docTemplate = `{
                 "tags": [
                     "songs"
                 ],
-                "summary": "Get songs with filters and pagination",
+                "summary": "Get songs with optional filters and pagination",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Group of the song",
+                        "description": "Filter by group name",
                         "name": "group",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Title of the song",
+                        "description": "Filter by song name",
                         "name": "song",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Release date of the song",
-                        "name": "releaseDate",
+                        "description": "Filter by release date (YYYY-MM-DD)",
+                        "name": "release_date",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Link to the song",
+                        "description": "Filter by text",
+                        "name": "text",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by link",
                         "name": "link",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number (default is 1)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of songs per page (default is 3)",
-                        "name": "limit",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "List of songs",
+                        "description": "Filtered list of songs",
                         "schema": {
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/main.Song"
                             }
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid page or limit parameter",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "No songs found",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     "500": {
@@ -154,7 +136,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "description": "Update a song by providing all fields (group, song, releaseDate, text, link).",
+                "description": "Update the details of an existing song.",
                 "consumes": [
                     "application/json"
                 ],
@@ -164,10 +146,17 @@ const docTemplate = `{
                 "tags": [
                     "songs"
                 ],
-                "summary": "Update a song",
+                "summary": "Update song details",
                 "parameters": [
                     {
-                        "description": "Song data to update",
+                        "type": "integer",
+                        "description": "ID of the song",
+                        "name": "id_song",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated song details",
                         "name": "song",
                         "in": "body",
                         "required": true,
@@ -178,13 +167,13 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Song updated successfully",
+                        "description": "The updated song",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/main.Song"
                         }
                     },
                     "400": {
-                        "description": "All fields (group, song, releaseDate, text, link) are required",
+                        "description": "Invalid input",
                         "schema": {
                             "type": "string"
                         }
@@ -204,7 +193,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Add a song with only group and song fields, or all fields.",
+                "description": "Add a new song by providing group name and song name. Details (release date, text, link) are fetched from an external API.",
                 "consumes": [
                     "application/json"
                 ],
@@ -217,8 +206,8 @@ const docTemplate = `{
                 "summary": "Add a new song",
                 "parameters": [
                     {
-                        "description": "Song data",
-                        "name": "song",
+                        "description": "Group and Song names",
+                        "name": "input",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -228,13 +217,19 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created",
+                        "description": "Song added successfully",
                         "schema": {
-                            "$ref": "#/definitions/main.Song"
+                            "type": "string"
                         }
                     },
                     "400": {
-                        "description": "Invalid JSON format",
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Song details not found",
                         "schema": {
                             "type": "string"
                         }
@@ -248,7 +243,7 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Delete a song by specifying the group and song fields.",
+                "description": "Delete a song from the database by its ID.",
                 "consumes": [
                     "application/json"
                 ],
@@ -261,24 +256,19 @@ const docTemplate = `{
                 "summary": "Delete a song",
                 "parameters": [
                     {
-                        "description": "Song data to delete",
-                        "name": "song",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/main.SongShort"
-                        }
+                        "type": "integer",
+                        "description": "ID of the song",
+                        "name": "id_song",
+                        "in": "query",
+                        "required": true
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "Song deleted successfully",
-                        "schema": {
-                            "type": "string"
-                        }
+                    "204": {
+                        "description": "No Content"
                     },
                     "400": {
-                        "description": "Invalid JSON format",
+                        "description": "Invalid parameters",
                         "schema": {
                             "type": "string"
                         }
@@ -313,16 +303,9 @@ const docTemplate = `{
                 "summary": "Get song text with pagination",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Group of the song",
-                        "name": "group",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Title of the song",
-                        "name": "song",
+                        "type": "integer",
+                        "description": "ID of the song",
+                        "name": "id_song",
                         "in": "query",
                         "required": true
                     },
@@ -347,7 +330,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid page or limit parameter or missing required parameters",
+                        "description": "Invalid parameters",
                         "schema": {
                             "type": "string"
                         }
@@ -373,8 +356,13 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "group": {
-                    "description": "ID          int    ` + "`" + `db:\"id\" json:\"id\"` + "`" + `",
                     "type": "string"
+                },
+                "id_group": {
+                    "type": "integer"
+                },
+                "id_song": {
+                    "type": "integer"
                 },
                 "link": {
                     "type": "string"

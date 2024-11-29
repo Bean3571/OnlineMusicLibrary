@@ -3,8 +3,11 @@ definitions:
   main.Song:
     properties:
       group:
-        description: ID          int    `db:"id" json:"id"`
         type: string
+      id_group:
+        type: integer
+      id_song:
+        type: integer
       link:
         type: string
       release_date:
@@ -79,23 +82,20 @@ paths:
     delete:
       consumes:
       - application/json
-      description: Delete a song by specifying the group and song fields.
+      description: Delete a song from the database by its ID.
       parameters:
-      - description: Song data to delete
-        in: body
-        name: song
+      - description: ID of the song
+        in: query
+        name: id_song
         required: true
-        schema:
-          $ref: '#/definitions/main.SongShort'
+        type: integer
       produces:
       - application/json
       responses:
-        "200":
-          description: Song deleted successfully
-          schema:
-            type: string
+        "204":
+          description: No Content
         "400":
-          description: Invalid JSON format
+          description: Invalid parameters
           schema:
             type: string
         "404":
@@ -112,64 +112,54 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get songs with optional filters and pagination.
+      description: 'Retrieve a list of songs with optional filters: group name, song
+        name, release date, text, link.'
       parameters:
-      - description: Group of the song
+      - description: Filter by group name
         in: query
         name: group
         type: string
-      - description: Title of the song
+      - description: Filter by song name
         in: query
         name: song
         type: string
-      - description: Release date of the song
+      - description: Filter by release date (YYYY-MM-DD)
         in: query
-        name: releaseDate
+        name: release_date
         type: string
-      - description: Link to the song
+      - description: Filter by text
+        in: query
+        name: text
+        type: string
+      - description: Filter by link
         in: query
         name: link
         type: string
-      - description: Page number (default is 1)
-        in: query
-        name: page
-        type: integer
-      - description: Number of songs per page (default is 3)
-        in: query
-        name: limit
-        type: integer
       produces:
       - application/json
       responses:
         "200":
-          description: List of songs
+          description: Filtered list of songs
           schema:
             items:
               $ref: '#/definitions/main.Song'
             type: array
-        "400":
-          description: Invalid page or limit parameter
-          schema:
-            type: string
-        "404":
-          description: No songs found
-          schema:
-            type: string
         "500":
           description: Failed to fetch songs
           schema:
             type: string
-      summary: Get songs with filters and pagination
+      summary: Get songs with optional filters and pagination
       tags:
       - songs
     post:
       consumes:
       - application/json
-      description: Add a song with only group and song fields, or all fields.
+      description: Add a new song by providing group name and song name. Details (release
+        date, text, link) are fetched from an external API.
       parameters:
-      - description: Song data
+      - description: Group and Song names
         in: body
-        name: song
+        name: input
         required: true
         schema:
           $ref: '#/definitions/main.SongShort'
@@ -177,11 +167,15 @@ paths:
       - application/json
       responses:
         "201":
-          description: Created
+          description: Song added successfully
           schema:
-            $ref: '#/definitions/main.Song'
+            type: string
         "400":
-          description: Invalid JSON format
+          description: Invalid input
+          schema:
+            type: string
+        "404":
+          description: Song details not found
           schema:
             type: string
         "500":
@@ -194,10 +188,14 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update a song by providing all fields (group, song, releaseDate,
-        text, link).
+      description: Update the details of an existing song.
       parameters:
-      - description: Song data to update
+      - description: ID of the song
+        in: query
+        name: id_song
+        required: true
+        type: integer
+      - description: Updated song details
         in: body
         name: song
         required: true
@@ -207,11 +205,11 @@ paths:
       - application/json
       responses:
         "200":
-          description: Song updated successfully
+          description: The updated song
           schema:
-            type: string
+            $ref: '#/definitions/main.Song'
         "400":
-          description: All fields (group, song, releaseDate, text, link) are required
+          description: Invalid input
           schema:
             type: string
         "404":
@@ -222,7 +220,7 @@ paths:
           description: Failed to update song
           schema:
             type: string
-      summary: Update a song
+      summary: Update song details
       tags:
       - songs
   /songs/text:
@@ -231,16 +229,11 @@ paths:
       - application/json
       description: Fetch the song text with pagination by verses.
       parameters:
-      - description: Group of the song
+      - description: ID of the song
         in: query
-        name: group
+        name: id_song
         required: true
-        type: string
-      - description: Title of the song
-        in: query
-        name: song
-        required: true
-        type: string
+        type: integer
       - description: Page number (default is 1)
         in: query
         name: page
@@ -257,7 +250,7 @@ paths:
           schema:
             type: string
         "400":
-          description: Invalid page or limit parameter or missing required parameters
+          description: Invalid parameters
           schema:
             type: string
         "404":
