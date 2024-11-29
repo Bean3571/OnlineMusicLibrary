@@ -407,7 +407,7 @@ func getSongText(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Get songs with optional filters and pagination
-// @Description Retrieve a list of songs with optional filters: group name, song name, release date, text, link.
+// @Description Retrieve a list of songs with optional filters: group name, song name, release date, text, link, and pagination by songs.
 // @Tags songs
 // @Accept  json
 // @Produce  json
@@ -416,17 +416,44 @@ func getSongText(w http.ResponseWriter, r *http.Request) {
 // @Param release_date query string false "Filter by release date (YYYY-MM-DD)"
 // @Param text query string false "Filter by text"
 // @Param link query string false "Filter by link"
-// @Success 200 {array} Song "Filtered list of songs"
+// @Param page query int false "Page number (default is 1)"
+// @Param limit query int false "Number of songs per page (default is 10)"
+// @Success 200 {array} Song "Paginated list of songs"
+// @Failure 400 {string} string "Invalid parameters"
 // @Failure 500 {string} string "Failed to fetch songs"
 // @Router /songs [get]
 func getSongsFiltered(w http.ResponseWriter, r *http.Request) {
-	slog.Info("Received request to getSongsWithFilters")
+	slog.Info("Received request to getSongsFiltered")
 
 	group := r.URL.Query().Get("group")
 	song := r.URL.Query().Get("song")
 	releaseDate := r.URL.Query().Get("release_date")
 	text := r.URL.Query().Get("text")
 	link := r.URL.Query().Get("link")
+
+	page, limit := 1, 10
+
+	pageStr := r.URL.Query().Get("page")
+	if pageStr != "" {
+		var err error
+		page, err = strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			slog.Warn("Invalid page parameter", "page", pageStr)
+			http.Error(w, "Invalid page parameter", http.StatusBadRequest)
+			return
+		}
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	if limitStr != "" {
+		var err error
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			slog.Warn("Invalid limit parameter", "limit", limitStr)
+			http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+			return
+		}
+	}
 
 	query := `
         SELECT s.id_song, s.id_group, g.groupName AS group, s.song, s.release_date, s.lyrics, s.link
@@ -436,7 +463,7 @@ func getSongsFiltered(w http.ResponseWriter, r *http.Request) {
 	args := []interface{}{}
 
 	if group != "" {
-		query += " AND g.groupName ILIKE $1"
+		query += " AND g.groupName ILIKE $" + strconv.Itoa(len(args)+1)
 		args = append(args, "%"+group+"%")
 	}
 	if song != "" {
@@ -456,18 +483,31 @@ func getSongsFiltered(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "%"+link+"%")
 	}
 
-	slog.Debug("Executing query", "query", query, "args", args)
-
-	var songs []Song
-	err := db.Select(&songs, query, args...)
+	var allSongs []Song
+	err := db.Select(&allSongs, query, args...)
 	if err != nil {
 		slog.Error("Failed to fetch songs", "error", err)
 		http.Error(w, "Failed to fetch songs", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(songs)
+	start := (page - 1) * limit
+	end := start + limit
 
-	slog.Debug("Songs retrieved successfully", "count", len(songs))
+	if start >= len(allSongs) {
+		slog.Warn("Page out of range", "page", page)
+		http.Error(w, "Page out of range", http.StatusBadRequest)
+		return
+	}
+
+	if end > len(allSongs) {
+		end = len(allSongs)
+	}
+
+	paginatedSongs := allSongs[start:end]
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(paginatedSongs)
+
+	slog.Debug("Songs retrieved successfully", "count", len(paginatedSongs), "page", page, "limit", limit)
 }

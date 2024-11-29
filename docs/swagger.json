@@ -68,7 +68,7 @@
         },
         "/songs": {
             "get": {
-                "description": "Retrieve a list of songs with optional filters: group name, song name, release date, text, link.",
+                "description": "Retrieve a list of songs with optional filters: group name, song name, release date, text, link, and pagination by songs.",
                 "consumes": [
                     "application/json"
                 ],
@@ -109,16 +109,34 @@
                         "description": "Filter by link",
                         "name": "link",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default is 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of songs per page (default is 10)",
+                        "name": "limit",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Filtered list of songs",
+                        "description": "Paginated list of songs",
                         "schema": {
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/main.Song"
                             }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid parameters",
+                        "schema": {
+                            "type": "string"
                         }
                     },
                     "500": {
