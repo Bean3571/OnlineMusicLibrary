@@ -34,12 +34,10 @@ func main() {
 	}
 	slog.Info(".env loaded successfully!")
 
-	slog.Info("Initializing DB")
 	initDB()
 	if db == nil {
 		slog.Error("Database connection is nil after initialization")
 	}
-	slog.Info("DB initialized successfully!")
 
 	slog.Info("Setting up routes")
 	r := setupRoutes()
